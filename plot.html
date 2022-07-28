@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plot</title>
+  <style>
+    #canvas1 {
+      border: 1px solid #c0c0c0;
+    }
+
+  </style>
+</head>
+<body>
+  <canvas id="canvas1" width="640" height="640"></canvas><br>
+  Manipulate by global variable X
+  <script>
+    const X = (X => {
+      /** @type {HTMLCanvasElement} */
+      const canvas = document.getElementById("canvas1");
+      const g = canvas.getContext("2d");
+      const commands = [];
+
+      let x0 = -1, x1 = 1, y0 = -1, y1 = 1;
+
+      function clear(rerender = true) {
+        commands.splice(0);
+        if (rerender) render();
+      }
+
+      function localToGlobal(x, y) {
+        return {
+          x: (x - x0) / (x1 - x0) * canvas.width,
+          y: (y - y0) / (y1 - y0) * canvas.height,
+        };
+      }
+
+      function render() {
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        for (let command of commands) {
+          if (command.type === "point") {
+            const p = localToGlobal(command.x, command.y);
+            g.fillRect(p.x, p.y, 1, 1);
+          }
+        }
+      }
+
+      function plotPoint(x, y, rerender = true) {
+        commands.push({ type: "point", x, y });
+        if (rerender) render();
+      }
+
+      function setRange(xBegin, xEnd, yBegin, yEnd) {
+        x0 = xBegin;
+        x1 = xEnd;
+        y0 = yBegin;
+        y1 = yEnd;
+        render();
+      }
+
+      const obj = { clear, localToGlobal, render, plotPoint, setRange };
+      obj.__proto__ = X;
+      return obj;
+    })({});
+  </script>
+</body>
+</html>

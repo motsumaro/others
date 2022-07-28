@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Cabinet Diagram Editor</title>
+    <style>
+        body {
+            overflow: hidden;
+        }
+
+        #canvas1 {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+
+        #board {
+            position: absolute;
+            right: 30px;
+            bottom: 30px;
+            padding: 10px;
+            background: #ffffff;
+            border: 1px solid #999999;
+            border-radius: 5px;
+        }
+
+    </style>
+</head>
+<body>
+    <canvas id="canvas1"></canvas>
+    <div id="board">
+        radius: <input type="number" id="input_number" value="50"><br>
+        color: <input type="color" id="input_color" value="#ff0000"><br>
+        background: <input type="color" id="input_bg" value="#ffffff"><br>
+        offsetX: <input type="number" id="input_ox" value="0"><br>
+        offsetY: <input type="number" id="input_oy" value="0"><br>
+    </div>
+    <script>
+        const canvas = document.getElementById("canvas1");
+        function onResize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener("resize", onResize);
+        onResize();
+
+        // データ
+        const data = (() => {
+            const _data = {};
+            function get(x6, y6, d) {
+                return x6 in _data && y6 in _data[x6] ? _data[x6][y6][d] : undefined;
+            }
+            function set(x6, y6, d, value) {
+                if (!(x6 in _data)) _data[x6] = {};
+                if (!(y6 in _data[x6])) _data[x6][y6] = {};
+                _data[x6][y6][d] = value;
+            }
+            function clear() {
+                for (let x6 in _data) delete _data[x6];
+            }
+            return { get, set, clear, _data };
+        })();
+
+        // 座標変換
+        const SQRT3 = Math.sqrt(3);
+        function xy_to_x6y6d(x, y) {
+            // 概算
+            const x6about = Math.floor(x / (r * SQRT3) + 0.5);
+            const y6about = Math.floor(y / (r * 1.5) + 0.5);
+
+            // -2 ~ +2 の範囲を調べてx6, y6を決定
+            const result = { x6: x6about, y6: y6about, d: 0 }
+            let minD = Infinity;
+            for (let x6 = x6about - 2; x6 <= x6about + 2; x6++) {
+                for (let y6 = y6about - 2; y6 <= y6about + 2; y6++) {
+                    const c = x6y6_to_centerXY(x6, y6);
+                    const d = Math.pow(x - c.x, 2) + Math.pow(y - c.y, 2);
+                    if (d < minD) {
+                        result.x6 = x6;
+                        result.y6 = y6;
+                        minD = d;
+                    }
+                }
+            }
+
+            // 角度
+            const c = x6y6_to_centerXY(result.x6, result.y6);
+            const a = Math.atan2(y - c.y, x - c.x);
+            result.d = Math.floor((a / Math.PI * 3) % 6 + 6.5) % 6;
+
+            return result;
+        }
+        function x6y6_to_centerXY(x6, y6) {
+            x6 = Math.floor(x6 + 0.5);
+            y6 = Math.floor(y6 + 0.5);
+            if (y6 & 1) {
+                return { x: (x6 + 0.5) * r * SQRT3, y: y6 * r * 1.5 };
+            } else {
+                return { x: x6 * r * SQRT3, y: y6 * r * 1.5 };
+            }
+        }
+        function p6Equal(p, q) {
+            return p.x6 === q.x6 && p.y6 === q.y6 && p.d === q.d;
+        }
+
+        // マウス
+        let mouseX = 0, mouseY = 0, mouseDown = undefined;
+        canvas.addEventListener("mousemove", e => {
+            mouseX = e.offsetX;
+            mouseY = e.offsetY;
+        });
+        canvas.addEventListener("mousedown", e => mouseDown = e.button);
+        canvas.addEventListener("mouseup", e => mouseDown = undefined);
+        document.addEventListener("keydown", e => {
+            if (e.keyCode === "S".charCodeAt(0)) {
+                // スポイト
+                const p = xy_to_x6y6d(mouseX, mouseY);
+                const v = data.get(p.x6, p.y6, p.d);
+                currentColor = v;
+                if (v !== undefined) input_color.value = v;
+            }
+        });
+
+        // 入力フォーム
+        let r = 50;
+        let currentColor = "#ff0000";
+        let offsetX = 0, offsetY = 0;
+        const input_number = document.getElementById("input_number");
+        const input_color = document.getElementById("input_color");
+        const input_bg = document.getElementById("input_bg");
+        const input_ox = document.getElementById("input_ox");
+        const input_oy = document.getElementById("input_oy");
+        input_number.addEventListener("input", e => {
+            const v = e.target.value;
+            if (!isNaN(v) && Number(v) > 0) r = Number(v);
+        });
+        input_color.addEventListener("input", e => {
+            const v = e.target.value;
+            currentColor = v;
+        });
+        input_ox.addEventListener("input", e => {
+            const v = e.target.value;
+            if (!isNaN(v) && Number(v) > 0) offsetX = Number(v);
+        });
+        input_oy.addEventListener("input", e => {
+            const v = e.target.value;
+            if (!isNaN(v) && Number(v) > 0) offsetY = Number(v);
+        });
+
+        // 描画関連
+        const g = canvas.getContext("2d");
+        function randomColor() {
+            let x = Math.floor(Math.random() * 0x1000000).toString(16);
+            while (x.length < 6) x = "0" + x;
+            return "#" + x;
+        }
+        function draw6(g, x6, y6, d, stroke, fill) {
+            const r_ = r;
+            const c = x6y6_to_centerXY(x6, y6);
+            c.x -= offsetX;
+            c.y -= offsetY;
+            g.beginPath();
+            if (d === undefined) {
+                g.moveTo(c.x, c.y - r_);
+                for (let i = 1; i < 6; i++) {
+                    const a = Math.PI * (i / 3 - 0.5);
+                    g.lineTo(c.x + Math.cos(a) * r_, c.y + Math.sin(a) * r_);
+                }
+            } else {
+                g.moveTo(c.x, c.y);
+                let a = Math.PI * (d - 0.5) / 3;
+                g.lineTo(c.x + Math.cos(a) * r_, c.y + Math.sin(a) * r_);
+                a += Math.PI / 3;
+                g.lineTo(c.x + Math.cos(a) * r_, c.y + Math.sin(a) * r_);
+            }
+            g.closePath();
+            if (stroke) {
+                g.strokeStyle = stroke;
+                g.stroke();
+            }
+            if (fill) {
+                g.fillStyle = fill;
+                g.fill();
+            }
+        }
+
+        let previousMouseP = undefined;
+        function onFrame() {
+            window.requestAnimationFrame(onFrame);
+
+            g.clearRect(0, 0, canvas.width, canvas.height);
+            g.fillStyle = input_bg.value;
+            g.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 画面の四隅のx6y6d座標を求めてcanvas全体を覆う
+            const ps = [[0, 0], [canvas.width, 0], [0, canvas.height], [canvas.width, canvas.height]].map(p => xy_to_x6y6d(p[0] + offsetX, p[1] + offsetY));
+            const minX6 = Math.min(...ps.map(p => p.x6)), maxX6 = Math.max(...ps.map(p => p.x6));
+            const minY6 = Math.min(...ps.map(p => p.y6)), maxY6 = Math.max(...ps.map(p => p.y6));
+
+            // マウス操作
+            const mouseP = xy_to_x6y6d(mouseX + offsetX, mouseY + offsetY);
+            if (mouseDown !== undefined) {
+                if (!previousMouseP || !p6Equal(mouseP, previousMouseP)) {
+                    data.set(mouseP.x6, mouseP.y6, mouseP.d, currentColor);
+                    previousMouseP = { ...mouseP };
+                }
+            } else {
+                previousMouseP = undefined;
+            }
+
+            // 描画
+            for (let x6 = minX6 - 2; x6 <= maxX6 + 2; x6++) {
+                for (let y6 = minY6 - 2; y6 <= maxY6 + 2; y6++) {
+                    for (let d = 0; d < 6; d++) {
+
+                        const p = { x6, y6, d };
+
+                        // データ
+                        const v = data.get(x6, y6, d);
+                        if (v !== undefined) {
+                            draw6(g, x6, y6, d, undefined, v);
+                        }
+
+                        // カーソル
+                        if (p6Equal(p, mouseP)) {
+                            draw6(g, x6, y6, d, "rgba(0, 0, 0, 0.3)", "rgba(51, 201, 255, 0.3)");
+                        }
+
+                    }
+                }
+            }
+        }
+        onFrame();
+    </script>
+</body>
+</html>
